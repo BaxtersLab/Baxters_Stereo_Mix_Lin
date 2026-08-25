@@ -1,0 +1,23 @@
+[package]
+name = "bsm-ipc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+  bsm-core = { path = "../bsm-core" }
+  bsm-audio = { path = "../bsm-audio" }
+  bsm-encode = { path = "../bsm-encode" }
+  tokio = { workspace = true, features = ["net", "io-util", "sync", "rt"] }
+  tokio-util = { version = "0.7", optional = true }
+  tokio-named-pipes = { version = "0.1", optional = true }
+  serde = { workspace = true }
+  serde_json = { workspace = true }
+  tracing = { workspace = true }
+  thiserror = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+  tokio = { workspace = true, features = ["net"] }
+  winapi = { version = "0.3", features = ["namedpipeapi", "fileapi", "handleapi", "winbase", "winnt"] }
+  
+[target.'cfg(unix)'.dependencies]
+  tokio = { workspace = true, features = ["net"] }

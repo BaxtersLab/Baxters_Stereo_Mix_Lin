@@ -1,0 +1,30 @@
+[package]
+name = "bsm-encode"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bsm-core = { path = "../bsm-core" }
+tokio = { version = "1", features = ["rt", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror.workspace = true
+tracing = "0.1"
+once_cell = "1"
+
+# MP3 encoding via vendored LAME (compiles from C source, zero external deps)
+mp3lame-encoder = "0.2"
+
+# Utilities used by the output helper and tests
+chrono = "0.4"
+fs2 = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+# Independent pure-Rust FLAC decoder used to validate our hand-rolled FLAC
+# encoder produces standard, losslessly-decodable output.
+claxon = "0.4"

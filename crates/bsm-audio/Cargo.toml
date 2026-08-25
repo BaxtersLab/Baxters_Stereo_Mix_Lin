@@ -1,0 +1,36 @@
+[package]
+name = "bsm-audio"
+version.workspace = true
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bsm-core = { path = "../bsm-core" }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+async-trait = "0.1"
+
+cpal = "0.15"
+crossbeam-channel = "0.5"
+
+# True WASAPI render-endpoint loopback (capture system audio without the
+# crippled "Stereo Mix" input) is implemented directly against the Windows API.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+] }
+
+# Linux system-audio capture records the default sink's monitor via libpulse's
+# "simple" API. libpulse is served by both PulseAudio and PipeWire (pipewire-pulse),
+# so this one backend covers both. Build needs libpulse-dev + libpulse-simple-dev.
+[target.'cfg(target_os = "linux")'.dependencies]
+libpulse-binding = "2"
+libpulse-simple-binding = "2"

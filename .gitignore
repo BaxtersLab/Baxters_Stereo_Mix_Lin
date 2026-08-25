@@ -1,0 +1,23 @@
+/target
+*.log
+*.tmp
+dist/
+*.bsm
+.build_tmp/
+
+# Cargo.lock IS committed. This workspace builds applications, not a library,
+# so the lock file is the reproducible-build record -- and it is the only place
+# that pins `mp3lame-sys 0.1.11`, the exact version whose vendored LAME the
+# licence notices in THIRD_PARTY_LICENSES describe. Ignoring it would leave
+# those notices citing a version nothing records.
+
+# Internal working documents -- deliberately NOT published.
+#
+# These are the agent/operator handoff records. They contain no credentials,
+# but they are candid cross-project engineering notes (status of sibling
+# projects, local tree layout, planning-document references) written for this
+# workstation rather than for a reader of the repository. They stay in the
+# working tree and in the file cabinet; the public face of this project is
+# README.md + THIRD_PARTY_LICENSES. Reversible: add them later if wanted.
+BSM_HANDOFF.md
+handoffs.md

@@ -1,0 +1,99 @@
+# Third-party licences — Baxters Stereo Mix
+
+Baxters Stereo Mix is **MIT** (see `LICENSE`). It links third-party code whose
+licences impose obligations of their own. They are recorded here in full,
+because a licence obligation that lives only in someone's memory is one release
+away from being forgotten.
+
+---
+
+## LAME (libmp3lame) — LGPL, **statically linked**
+
+MP3 encoding is provided by **LAME 3.100**, reached through two Rust crates:
+
+| component | version | licence |
+|---|---|---|
+| `mp3lame-encoder` | 0.2.2 | LGPL-3.0 (crate metadata) |
+| `mp3lame-sys` | 0.1.11 | LGPL-3.0 (crate metadata) |
+| LAME itself, vendored inside `mp3lame-sys` | **3.100** | GNU Library GPL **v2 or, at your option, any later version** |
+
+### The linkage is STATIC, and that is the fact that decides everything else
+
+`mp3lame-sys` does not link a system `libmp3lame.so`. It **vendors LAME's C
+source** (49 `.c` files under `lame-3.100/`) and compiles it into the binary:
+
+    build.rs:48    .enable_static()
+    build.rs:58    println!("cargo:rustc-link-lib=static=mp3lame");
+    build.rs:138   cc.compile("mp3lame")
+
+So every Baxters Stereo Mix binary **contains** LAME. Static linking is the case
+the LGPL is most concerned with, because a user cannot simply drop in their own
+build of the library.
+
+LAME's per-file headers say "either version 2 of the License, or (at your
+option) any later version", so LGPL-2 code and the LGPL-3.0 wrappers combine
+without conflict; the combination is used under **LGPL-3.0**.
+
+### How the obligations are met
+
+**Relinking (LGPL-3 §4(d)) — satisfied by construction.** LGPL-3 §4(d) requires
+either a shared-library mechanism, or that the user be given what they need to
+relink the application against a modified library. Baxters Stereo Mix ships its
+**complete source under MIT**, so anyone can substitute a modified LAME and
+rebuild. Nothing further is required for this clause.
+
+*If Stereo Mix is ever shipped as a binary WITHOUT its source, this stops being
+true* and one of two things must happen: switch to dynamic linking against the
+system `libmp3lame0`, or ship object files sufficient for relinking. Ubuntu
+packages `libmp3lame0`, so the dynamic route is available.
+
+**Notice (LGPL-3 §4(a), §4(c)) — this document, plus `licenses/`.**
+The licence texts travel with the work:
+
+    licenses/LGPL-3.0.txt     GNU Lesser General Public License v3
+    licenses/GPL-3.0.txt      GNU General Public License v3  (LGPL-3 §4(b): LGPL-3
+                              is an addendum to GPL-3, so both must be included)
+    licenses/LAME-COPYING.txt LAME's own COPYING (GNU Library GPL v2)
+    licenses/LAME-LICENSE.txt LAME's own LICENSE note
+
+**Modifications — none.** LAME is used exactly as vendored by `mp3lame-sys`
+0.1.11. Nothing in this repository patches LAME. If that ever changes, LAME's
+LICENSE requires those modifications be released.
+
+**Acknowledgement.** LAME's own LICENSE asks that projects using it say so and
+link to the project. Baxters Stereo Mix uses the LAME MP3 encoder —
+<https://lame.sourceforge.io/>. Not strictly an LGPL requirement, but asked for
+by the authors and freely given.
+
+LAME is copyright its contributors; see `licenses/LAME-COPYING.txt` and the
+crate source for the full notices.
+
+---
+
+## A note on FFmpeg
+
+Earlier versions of this file read *"FFmpeg and related DLLs may be subject to
+LGPL. Include third-party license notices here."* That was a Windows-era
+placeholder. **This Linux port does not use FFmpeg**; MP3 encoding is the
+vendored LAME described above, and FLAC and WAV are encoded by this project's
+own code. The line was removed on 2026-08-24 because naming a dependency that
+does not exist, while omitting the one that does, is worse than saying nothing.
+
+---
+
+## Rust dependencies
+
+The remaining dependencies are permissively licensed (MIT/Apache-2.0). Generate
+a full inventory with:
+
+    cargo install cargo-about   # or cargo-deny
+    cargo about generate about.hbs
+
+Regenerate that inventory before any public release; this section is a pointer,
+not a substitute for it.
+
+---
+
+*Last reviewed 2026-08-24. Pinned by
+`crates/bsm-encode/tests/third_party_licenses.rs`, which fails if the notices
+stop naming LAME or the licence texts go missing.*

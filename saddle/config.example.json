@@ -1,0 +1,7 @@
+{
+  "app": "Baxters Stereo Mix",
+  "subscribe": { "type": "ipc", "path": "\\\\.\\pipe\\bsm-audio-telemetry" },
+  "command_pipe": "\\\\.\\pipe\\bsm-command",
+  "forward": [ { "type": "websocket", "url": "ws://127.0.0.1:9000/bsm" } ],
+  "transforms": [ { "id": "anonymize", "type": "mask", "fields": ["user"] } ]
+}
