@@ -36,10 +36,3 @@ egui = "0.29"
 # Error handling
 thiserror = "2"
 anyhow = "1"
-
-
-
-[workspace.metadata.fullwrapper]
-satellite = true
-app_code = "BSM"
-
