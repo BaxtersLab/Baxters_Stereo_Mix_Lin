@@ -1,0 +1,15 @@
+# This is the standalone Linux line of Baxter's Stereo Mix. Two thirds of the
+# source arrived from the Windows tree with CRLF endings; normalised to LF on
+# 2026-08-25 in a single commit, deliberately done one commit into the repo's
+# life so it never pollutes a real diff later.
+#
+# text=auto lets git decide what is text; eol=lf pins the checkout so a future
+# contributor on Windows cannot silently reintroduce CRLF.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.ico binary
+*.wav binary
+*.flac binary
+*.mp3 binary
