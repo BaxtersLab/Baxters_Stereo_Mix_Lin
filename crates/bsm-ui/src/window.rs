@@ -89,6 +89,9 @@ pub struct BsmWindow {
     bitrate_kbps: u32,
     container_format: ContainerFormat,
     telemetry_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Whether the one-shot telemetry opt-in check has run. Without this the
+    /// env lookup would repeat every frame once telemetry is unconfigured.
+    telemetry_checked: bool,
     splash_start: std::time::Instant,
     in_splash: bool,
     bsm_debug: bool,
@@ -153,6 +156,7 @@ impl BsmWindow {
             bitrate_kbps,
             container_format,
             telemetry_rx: None,
+            telemetry_checked: false,
             monitor_thread: None,
             monitor_stop: None,
             splash_start: std::time::Instant::now(),
@@ -691,15 +695,14 @@ impl eframe::App for BsmWindow {
             self.monitor_stop = Some(monitor_stop);
             self.monitor_thread = Some(handle);
         }
-        if self.telemetry_rx.is_none() {
-            // attempt to spawn telemetry thread if address provided via env
-            if let Ok(addr) = std::env::var("BSM_TELEMETRY_ADDR") {
-                let rx = crate::telemetry_client::spawn_telemetry_thread(&addr);
-                self.telemetry_rx = Some(rx);
-            } else {
-                // default address — try localhost:9000
-                let rx = crate::telemetry_client::spawn_telemetry_thread("127.0.0.1:9000");
-                self.telemetry_rx = Some(rx);
+        // Telemetry is opt-in via BSM_TELEMETRY_ADDR. There is deliberately no
+        // default endpoint -- see telemetry_client::resolve_addr for why the
+        // old 127.0.0.1:9000 fallback was a permanent no-op with a cost.
+        if !self.telemetry_checked {
+            self.telemetry_checked = true;
+            if let Some(addr) = crate::telemetry_client::configured_addr() {
+                self.logs.push(format!("telemetry: connecting to {}", addr));
+                self.telemetry_rx = Some(crate::telemetry_client::spawn_telemetry_thread(&addr));
             }
         }
 

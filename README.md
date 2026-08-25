@@ -79,6 +79,20 @@ cargo run -p bsm-ui            # launches the recorder GUI
 In the GUI: click **Refresh Devices**, pick **System Audio (Monitor)**, choose a
 container (WAV/FLAC/MP3) and an output folder, then **Record**.
 
+### Telemetry (optional)
+
+The recorder can forward its telemetry to an external agent over a
+newline-delimited JSON socket. It is **opt-in** — set `BSM_TELEMETRY_ADDR` to the
+endpoint and the UI will connect to it, retrying on failure:
+
+```sh
+BSM_TELEMETRY_ADDR=127.0.0.1:9000 cargo run -p bsm-ui
+```
+
+With the variable unset the recorder makes no connection attempt at all. There is
+no default endpoint by design: nothing in this repository serves one, and a
+fallback address only produces a thread redialling a dead port.
+
 ---
 
 # Licence and open-source notices
