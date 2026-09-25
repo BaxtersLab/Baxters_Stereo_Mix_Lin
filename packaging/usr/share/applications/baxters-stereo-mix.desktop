@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Baxters Stereo Mix
+GenericName=System Audio Recorder
+Comment=Record what the machine is playing
+Exec=/opt/baxters/stereo-mix/run.sh
+Icon=baxters-stereo-mix
+Terminal=false
+Categories=AudioVideo;Audio;Recorder;
+Keywords=audio;record;capture;stereo;mix;loopback;monitor;
+StartupNotify=true
