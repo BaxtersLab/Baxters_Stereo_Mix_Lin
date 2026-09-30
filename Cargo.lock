@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "bsm-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "bsm-core",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "bsm-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "bsm-hrt"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bsm-core",
  "bsm-ipc",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "bsm-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bsm-audio",
  "bsm-core",
