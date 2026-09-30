@@ -35,3 +35,21 @@ pub trait AudioBackend: Send + Sync {
 	/// Returns the name of the currently open device, if any.
 	fn device_name(&self) -> Option<String>;
 }
+
+/// A boxed backend is a backend, so code can choose one at run time: the IPC
+/// dispatcher takes a factory, the app giving it the real device and its tests
+/// the mock (they used to record from this machine's microphone).
+#[async_trait]
+impl AudioBackend for Box<dyn AudioBackend> {
+	async fn enumerate_devices(&self) -> AudioResult<Vec<DeviceEntry>> { (**self).enumerate_devices().await }
+	async fn open_device(&mut self, device_index: u32, format: PcmFormat) -> AudioResult<()> {
+		(**self).open_device(device_index, format).await
+	}
+	async fn start(&mut self) -> AudioResult<()> { (**self).start().await }
+	async fn stop(&mut self) -> AudioResult<()> { (**self).stop().await }
+	async fn close(&mut self) -> AudioResult<()> { (**self).close().await }
+	async fn next_frame(&mut self) -> AudioResult<Option<PcmFrame>> { (**self).next_frame().await }
+	fn is_active(&self) -> bool { (**self).is_active() }
+	fn actual_format(&self) -> Option<PcmFormat> { (**self).actual_format() }
+	fn device_name(&self) -> Option<String> { (**self).device_name() }
+}

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration as StdDuration;
 use bsm_core::{PcmFormat, PcmFrame};
-use bsm_audio::WasapiBackend;
+use bsm_audio::{AudioBackend, WasapiBackend};
 use bsm_audio::pipeline::{CapturePipeline, DeviceConfig};
 use bsm_encode::{start_encoder, AudioEncoderInfo};
 use bsm_core::config::EncoderConfig;
@@ -50,10 +50,28 @@ pub struct Dispatcher {
     start_time: Instant,
     // Seed-BSM-G3-03-11: shared audio quality metrics
     audio_quality: Arc<std::sync::Mutex<AudioQualityState>>,
+    /// Makes the capture backend for each recording.
+    new_backend: fn() -> Box<dyn AudioBackend>,
+}
+
+/// The machine's real capture device: what the app records from.
+fn real_backend() -> Box<dyn AudioBackend> {
+    Box::new(WasapiBackend::new())
 }
 
 impl Dispatcher {
     pub fn new(telemetry: TelemetryEmitter) -> Self {
+        Self::with_backend(telemetry, real_backend)
+    }
+
+    /// A dispatcher that records from `new_backend()` instead of the real device.
+    ///
+    /// The state-machine tests used `new`, so every `cargo test` started a real
+    /// recording on this machine's capture device. When that device never
+    /// answered, the test binary hung: the RC-2026-09-29-r6 release gate stalled
+    /// in bsm_ipc for over six minutes at 0 CPU (the r3 gate hung the same way in
+    /// bsm_audio). They now pass the mock.
+    pub fn with_backend(telemetry: TelemetryEmitter, new_backend: fn() -> Box<dyn AudioBackend>) -> Self {
         Self {
             state: RecordingState::Idle,
             telemetry,
@@ -64,6 +82,7 @@ impl Dispatcher {
             shutdown_notify: None,
             start_time: Instant::now(),
             audio_quality: Arc::new(std::sync::Mutex::new(AudioQualityState::default())),
+            new_backend,
         }
     }
 
@@ -93,8 +112,9 @@ impl Dispatcher {
         // Shared audio quality state (updated by pipeline task, read by stats task).
         let aq = self.audio_quality.clone();
 
-        // Pipeline task: runs CapturePipeline with WasapiBackend and forwards frames into pcm_tx
-        let mut pipeline = CapturePipeline::new(WasapiBackend::new(), PcmFormat { sample_rate: 48000, channels: 2, bit_depth: 16 });
+        // Pipeline task: runs CapturePipeline with the backend (the real device,
+        // unless a test chose otherwise) and forwards frames into pcm_tx
+        let mut pipeline = CapturePipeline::new((self.new_backend)(), PcmFormat { sample_rate: 48000, channels: 2, bit_depth: 16 });
 
         let mut pipeline_shutdown = shutdown_rx.resubscribe();
         let pcm_tx_clone = pcm_tx.clone();
@@ -500,11 +520,16 @@ mod tests {
     use crate::telemetry::TelemetryEmitter;
     use tokio::sync::broadcast;
 
+    /// Never the real device: see `Dispatcher::with_backend`.
+    fn mock() -> Box<dyn AudioBackend> {
+        Box::new(bsm_audio::MockAudioBackend::new())
+    }
+
     #[test]
     fn start_stop_flow_emits_telemetry_and_changes_state() {
         let (tx, mut rx) = broadcast::channel(8);
         let emitter = TelemetryEmitter::new(tx.clone());
-        let mut d = Dispatcher::new(emitter.clone());
+        let mut d = Dispatcher::with_backend(emitter.clone(), mock);
 
         // Start recording
         let resp = d.handle_command(IpcCommand::StartRecording { device_index: Some(1) }, "id1");
@@ -533,7 +558,7 @@ mod tests {
     fn pause_resume_transitions() {
         let (tx, _rx) = broadcast::channel(4);
         let emitter = TelemetryEmitter::new(tx);
-        let mut d = Dispatcher::new(emitter);
+        let mut d = Dispatcher::with_backend(emitter, mock);
 
         let _ = d.handle_command(IpcCommand::StartRecording { device_index: None }, "s1");
         assert!(matches!(d.state(), RecordingState::Recording { .. }));
