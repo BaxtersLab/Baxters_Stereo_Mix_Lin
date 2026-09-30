@@ -89,9 +89,15 @@ mod tests {
 	}
 
 	// Integration-style test that attempts to open the first real device.
-	// This test is marked `ignore` because it requires an audio device and
-	// may be flaky in CI. Run with `cargo test -- --ignored` locally.
+	// It requires an audio device, so it is ignored by default. Run with
+	// `cargo test -- --ignored` locally.
+	//
+	// The comment said "ignored" long before the attribute was here. Without
+	// it, every gate run opened this machine's real capture device and waited
+	// for three frames with no timeout. It passed until, in the r3 release
+	// gate (2026-09-29), no frame arrived and the gate hung for 2 h 24 min.
 	#[tokio::test]
+	#[ignore = "opens a real capture device and waits for audio; run with --ignored"]
 	async fn pipeline_integration_real_device() {
 		let fmt = PcmFormat { sample_rate: 48000, channels: 2, bit_depth: 16 };
 		let mut pipeline = CapturePipeline::new(crate::wasapi::WasapiBackend::new(), fmt.clone());
