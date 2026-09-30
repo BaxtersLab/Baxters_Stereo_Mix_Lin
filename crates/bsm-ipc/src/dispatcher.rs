@@ -8,7 +8,7 @@ use std::time::Duration as StdDuration;
 use bsm_core::{PcmFormat, PcmFrame};
 use bsm_audio::{AudioBackend, WasapiBackend};
 use bsm_audio::pipeline::{CapturePipeline, DeviceConfig};
-use bsm_encode::{start_encoder, AudioEncoderInfo};
+use bsm_encode::{start_encoder, AudioEncoderInfo, EncoderHandle};
 use bsm_core::config::EncoderConfig;
 
 /// Seed-BSM-G3-03-11: Shared audio quality metrics updated by the pipeline
@@ -52,6 +52,8 @@ pub struct Dispatcher {
     audio_quality: Arc<std::sync::Mutex<AudioQualityState>>,
     /// Makes the capture backend for each recording.
     new_backend: fn() -> Box<dyn AudioBackend>,
+    /// `samples_captured` when the current recording started.
+    frames_at_start: u64,
 }
 
 /// The machine's real capture device: what the app records from.
@@ -83,7 +85,13 @@ impl Dispatcher {
             start_time: Instant::now(),
             audio_quality: Arc::new(std::sync::Mutex::new(AudioQualityState::default())),
             new_backend,
+            frames_at_start: 0,
         }
+    }
+
+    /// Frames the pipeline has captured since this dispatcher was made.
+    fn frames_captured(&self) -> u64 {
+        self.audio_quality.lock().map(|aq| aq.samples_captured).unwrap_or(0)
     }
 
     fn ensure_runtime(&mut self) {
@@ -106,7 +114,7 @@ impl Dispatcher {
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(4);
 
         // Track active background tasks and notify when all complete
-        let active = Arc::new(AtomicUsize::new(4)); // pipeline + encoder + disk + audio-stats
+        let active = Arc::new(AtomicUsize::new(3)); // pipeline + encoder + audio-stats
         let notify = Arc::new(Notify::new());
 
         // Shared audio quality state (updated by pipeline task, read by stats task).
@@ -123,7 +131,7 @@ impl Dispatcher {
         let aq_pipeline = aq.clone();
 
         let _pipeline_task = rt.handle().spawn(async move {
-            // open device (mock uses index 0)
+            // STUB: device selection -- index 0 whatever was asked (ROADMAP.md).
             let _ = pipeline.open_with_config(0, DeviceConfig::with_format(PcmFormat { sample_rate: 48000, channels: 2, bit_depth: 16 })).await;
             let _ = pipeline.start().await;
 
@@ -175,19 +183,21 @@ impl Dispatcher {
             }
         });
 
-        // Encoder task: start encoder and forward stats to telemetry
+        // Encoder task: start encoder and forward stats to telemetry.
+        // STUB: the recording is metered but not written to a file (ROADMAP.md).
         let encoder_shutdown_for_start = shutdown_rx.resubscribe();
         let mut encoder_shutdown_for_loop = shutdown_rx.resubscribe();
         let telemetry_clone = self.telemetry.clone();
         let active_clone = active.clone();
         let notify_clone = notify.clone();
         let _encoder_task = rt.handle().spawn(async move {
-            // choose fake encoder info and default config
-            let info = AudioEncoderInfo::new("libopus");
+            // `start_encoder` passes the PCM through and ignores the info, so
+            // name what it passes rather than a codec it never runs.
+            let info = AudioEncoderInfo::new("pcm_s16le");
             let cfg = EncoderConfig::default();
             let input_fmt = PcmFormat { sample_rate: 48000, channels: 2, bit_depth: 16 };
             if let Ok((handle, _jh)) = start_encoder(pcm_rx, info, cfg, input_fmt, encoder_shutdown_for_start).await {
-                let mut stats_rx = handle.stats_rx;
+                let EncoderHandle { mut packet_rx, mut stats_rx } = handle;
                 loop {
                     tokio::select! {
                         Ok(stats) = stats_rx.recv() => {
@@ -200,6 +210,10 @@ impl Dispatcher {
                                 stats.frames_dropped,
                             );
                         }
+                        // Nothing writes the packets yet, but they must be read:
+                        // unread, they filled the encoder's queue and then the
+                        // pipeline's, and capture froze about five seconds in.
+                        Some(_packet) = packet_rx.recv() => {}
                         _ = encoder_shutdown_for_loop.recv() => {
                             break;
                         }
@@ -212,27 +226,9 @@ impl Dispatcher {
             }
         });
 
-        // Disk telemetry task: periodic (1s) emitter
-        let disk_telemetry = self.telemetry.clone();
-        let mut disk_shutdown = shutdown_rx.resubscribe();
-        let active_clone = active.clone();
-        let notify_clone = notify.clone();
-        let _disk_task = rt.handle().spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-            loop {
-                tokio::select! {
-                    _ = disk_shutdown.recv() => { break; }
-                    _ = interval.tick() => {
-                        // Fake disk stats for now
-                        disk_telemetry.emit_disk_stats(1.23, 1024.0, "./output.wav".into());
-                    }
-                }
-            }
-            // mark task done
-            if active_clone.fetch_sub(1, Ordering::SeqCst) == 1 {
-                notify_clone.notify_waiters();
-            }
-        });
+        // No disk telemetry: this recording writes no file, so there is none to
+        // report. (Until 2026-09-30 a task here emitted a constant 1.23 MB and
+        // 1024 MB free for `./output.wav` every second.)
 
         // Seed-BSM-G3-01-11: audio quality stats emitter — fires every 5 seconds.
         let audio_stats_telemetry = self.telemetry.clone();
@@ -401,8 +397,10 @@ impl Dispatcher {
         let id = id.into();
         match cmd {
             IpcCommand::StartRecording { device_index } => {
+                self.frames_at_start = self.frames_captured();
                 self.spawn_background_tasks(device_index);
                 self.state = RecordingState::Recording { device_index, started_at: now_ms() };
+                // STUB: names the index asked for, not the device opened (ROADMAP.md).
                 let device_name = match device_index { Some(i) => format!("device-{}", i), None => "default-device".to_string() };
                 self.telemetry.emit_audio_started(device_name, 48000, 2);
                 ResponseEnvelope::ok(id)
@@ -413,15 +411,20 @@ impl Dispatcher {
                 if let Some(tx) = &self.shutdown_tx {
                     let _ = tx.send(());
                 }
-                let duration_ms = match &self.state {
-                    RecordingState::Recording { started_at, .. } | RecordingState::Paused { started_at, .. } => now_ms().saturating_sub(*started_at),
-                    _ => 0,
+                let (duration_ms, total_frames) = match &self.state {
+                    RecordingState::Recording { started_at, .. } | RecordingState::Paused { started_at, .. } => (
+                        now_ms().saturating_sub(*started_at),
+                        self.frames_captured().saturating_sub(self.frames_at_start),
+                    ),
+                    _ => (0, 0),
                 };
                 self.state = RecordingState::Idle;
-                self.telemetry.emit_audio_stopped(duration_ms, 0);
+                self.telemetry.emit_audio_stopped(duration_ms, total_frames);
                 ResponseEnvelope::ok(id)
             }
 
+            // STUB: pause and resume change only the reported state; capture
+            // and metering continue (ROADMAP.md).
             IpcCommand::PauseRecording => {
                 match &self.state {
                     RecordingState::Recording { device_index, started_at } => {
@@ -451,11 +454,13 @@ impl Dispatcher {
                 ResponseEnvelope::ok_data(id, data)
             }
 
+            // STUB: acknowledged and ignored (ROADMAP.md).
             IpcCommand::SetDevice { device_index } => {
                 let _ = device_index;
                 ResponseEnvelope::ok(id)
             }
 
+            // STUB: acknowledged and ignored (ROADMAP.md).
             IpcCommand::UpdateConfig { patch: _ } => {
                 ResponseEnvelope::ok(id)
             }
@@ -568,5 +573,121 @@ mod tests {
         let r = d.handle_command(IpcCommand::ResumeRecording, "r1");
         assert!(r.ok);
         assert!(matches!(d.state(), RecordingState::Recording { .. }));
+    }
+
+    /// The mock yields one 480-frame buffer per 10 ms, never faster.
+    const MOCK_BUFFER_FRAMES: u64 = 480;
+
+    /// Every telemetry event that arrives within `window`.
+    fn events_for(rx: &mut broadcast::Receiver<String>, window: StdDuration) -> Vec<serde_json::Value> {
+        let deadline = Instant::now() + window;
+        let mut seen = Vec::new();
+        loop {
+            match rx.try_recv() {
+                Ok(msg) => seen.push(serde_json::from_str(&msg).unwrap()),
+                Err(_) if Instant::now() < deadline => std::thread::sleep(StdDuration::from_millis(10)),
+                Err(_) => return seen,
+            }
+        }
+    }
+
+    fn frames_captured(d: &mut Dispatcher) -> u64 {
+        let resp = d.handle_command(IpcCommand::Stats, "stats");
+        resp.data.unwrap()["samples_captured"].as_u64().unwrap()
+    }
+
+    fn stopped_total_frames(rx: &mut broadcast::Receiver<String>) -> u64 {
+        let stopped = events_for(rx, StdDuration::from_millis(50))
+            .into_iter()
+            .find(|e| e["event"] == "audio_stopped")
+            .expect("StopRecording emits audio_stopped");
+        stopped["data"]["total_frames"].as_u64().unwrap()
+    }
+
+    /// The dispatcher writes no file (a declared stub, ROADMAP.md), so it must
+    /// not report one. It emitted `disk_stats` of 1.23 MB and 1024 MB free for
+    /// `./output.wav` every second, a file that never existed.
+    #[test]
+    fn recording_reports_no_disk_file_it_does_not_write() {
+        let (tx, mut rx) = broadcast::channel(256);
+        let mut d = Dispatcher::with_backend(TelemetryEmitter::new(tx), mock);
+
+        assert!(d.handle_command(IpcCommand::StartRecording { device_index: None }, "s").ok);
+        // At least 1.5 s (the fake fired every second), and until the control
+        // arrives, so a loaded machine cannot turn the window into a pass.
+        let started = Instant::now();
+        let has_control = |seen: &[serde_json::Value]| seen.iter().any(|e| e["event"] == "encoder_stats");
+        let mut seen = Vec::new();
+        while started.elapsed() < StdDuration::from_secs(10)
+            && (started.elapsed() < StdDuration::from_millis(1500) || !has_control(&seen))
+        {
+            seen.extend(events_for(&mut rx, StdDuration::from_millis(100)));
+        }
+        d.handle_command(IpcCommand::StopRecording, "t");
+        assert!(d.shutdown_blocking_with_timeout(Some(StdDuration::from_secs(5))));
+
+        // Control: the stream was live and carried real periodic telemetry.
+        assert!(has_control(&seen), "no encoder_stats in 10 s, so the window proves nothing: {seen:?}");
+        let disk: Vec<_> = seen.iter().filter(|e| e["event"] == "disk_stats").collect();
+        assert!(disk.is_empty(), "disk_stats for a file nobody wrote: {disk:?}");
+    }
+
+    /// `audio_stopped` reported `total_frames: 0` for every recording. It is the
+    /// frames this recording captured: more than none, and never more than the
+    /// mock could have produced in the time, so it cannot be the running total.
+    #[test]
+    fn audio_stopped_reports_the_frames_this_recording_captured() {
+        let (tx, mut rx) = broadcast::channel(256);
+        let mut d = Dispatcher::with_backend(TelemetryEmitter::new(tx), mock);
+
+        for take in 1..=2 {
+            let started = Instant::now();
+            d.handle_command(IpcCommand::StartRecording { device_index: None }, "s");
+            std::thread::sleep(StdDuration::from_millis(300));
+            let before_stop = frames_captured(&mut d);
+            let _ = events_for(&mut rx, StdDuration::ZERO);
+            d.handle_command(IpcCommand::StopRecording, "t");
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            let total = stopped_total_frames(&mut rx);
+
+            assert!(total > 0, "take {take}: a 300 ms recording reported no frames");
+            let possible = (elapsed_ms / 10 + 2) * MOCK_BUFFER_FRAMES;
+            assert!(total <= possible,
+                "take {take}: {total} frames in {elapsed_ms} ms; at most {possible} were possible");
+            if take == 1 {
+                assert!(total >= before_stop, "take 1: {total} < the {before_stop} Stats already counted");
+            }
+        }
+        std::thread::sleep(StdDuration::from_millis(100));
+        d.handle_command(IpcCommand::StopRecording, "idle");
+        assert_eq!(stopped_total_frames(&mut rx), 0, "a stop with no recording captured frames");
+        assert!(d.shutdown_blocking_with_timeout(Some(StdDuration::from_secs(5))));
+    }
+
+    /// Nothing read the encoder's packets, so its 256-deep queue filled, then the
+    /// pipeline's, about five seconds in. Capture froze there: every later
+    /// `Stats` repeated the same peaks, and the pipeline, blocked in a send,
+    /// never saw the shutdown.
+    #[test]
+    fn metering_runs_past_the_queue_capacity_and_shutdown_completes() {
+        let (tx, _rx) = broadcast::channel(256);
+        let mut d = Dispatcher::with_backend(TelemetryEmitter::new(tx), mock);
+        d.handle_command(IpcCommand::StartRecording { device_index: None }, "s");
+
+        // Both queues plus one frame held by each task: 514 buffers at most.
+        let past_capacity = 600 * MOCK_BUFFER_FRAMES;
+        let deadline = Instant::now() + StdDuration::from_secs(20);
+        let mut captured = 0;
+        while Instant::now() < deadline {
+            captured = frames_captured(&mut d);
+            if captured > past_capacity { break; }
+            std::thread::sleep(StdDuration::from_millis(100));
+        }
+        assert!(captured > past_capacity,
+            "capture stalled at {captured} frames ({} buffers)", captured / MOCK_BUFFER_FRAMES);
+
+        d.handle_command(IpcCommand::StopRecording, "t");
+        assert!(d.shutdown_blocking_with_timeout(Some(StdDuration::from_secs(5))),
+            "the background tasks did not finish within 5 s of the shutdown");
     }
 }

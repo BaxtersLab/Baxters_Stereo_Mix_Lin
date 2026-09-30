@@ -32,7 +32,8 @@ than as a fork, because the code that does the actual work is not the same code.
 - `bsm-audio` — capture backends: PulseAudio/PipeWire monitor (Linux), WASAPI
   loopback (Windows), cpal device input, mock, null
 - `bsm-encode` — encoder + container muxers (WAV / FLAC / MP3) + output paths
-- `bsm-ipc` — agent IPC (server, commands, dispatcher, telemetry)
+- `bsm-ipc` — agent IPC (server, commands, dispatcher, telemetry). The app does
+  not start it yet, and its recording writes no file: see [`ROADMAP.md`](ROADMAP.md)
 - `bsm-hrt` — health / runtime telemetry client
 - `bsm-ui` — egui recorder UI (the `bsm-ui` binary)
 
