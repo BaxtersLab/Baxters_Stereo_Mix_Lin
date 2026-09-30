@@ -33,6 +33,7 @@ fn main() {
 
     let mut options = eframe::NativeOptions::default();
     options.viewport = egui::ViewportBuilder::default()
+        .with_app_id(bsm_ui::APP_ID)
         .with_inner_size(egui::vec2(600.0, 500.0))
         .with_resizable(true)
         .with_icon(std::sync::Arc::new(icon));
